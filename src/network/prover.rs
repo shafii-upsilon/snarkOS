@@ -32,6 +32,7 @@ use anyhow::Result;
 use rand::thread_rng;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::{
+    time:: {Instant},
     net::SocketAddr,
     path::Path,
     sync::{
@@ -151,6 +152,8 @@ impl<N: Network, E: Environment> Prover<N, E> {
                     loop {
                         // If `terminator` is `false` and the status is not `Peering` or `Mining` already, mine the next block.
                         if !prover.terminator.load(Ordering::SeqCst) && !prover.status.is_peering() && !prover.status.is_mining() {
+                            info!("$$$ LOOP BEGINNING");
+
                             // Set the status to `Mining`.
                             prover.status.update(State::Mining);
 
@@ -163,10 +166,18 @@ impl<N: Network, E: Environment> Prover<N, E> {
                             let status = prover.status.clone();
                             let ledger_router = prover.ledger_router.clone();
                             let prover_router = prover.prover_router.clone();
+                            
 
                             tasks_clone.append(task::spawn(async move {
+
+                                let start2 = Instant::now();
+
+                                info!("$$$ MINING STARTS");
+
                                 // Mine the next block.
                                 let result = task::spawn_blocking(move || {
+                                    
+                                    info!("$$$ INNER MINING STARTS");
                                     miner.install(move || {
                                         canon.mine_next_block(
                                             recipient,
@@ -180,12 +191,15 @@ impl<N: Network, E: Environment> Prover<N, E> {
                                 .await
                                 .map_err(|e| e.into());
 
+                                let duration2 = start2.elapsed();
+                                info!("$$$ DURATION minetask: {:?}", duration2);
+
                                 // Set the status to `Ready`.
                                 status.update(State::Ready);
-
+                                
                                 match result {
                                     Ok(Ok((block, coinbase_record))) => {
-                                        debug!("Miner has found unconfirmed block {} ({})", block.height(), block.hash());
+                                        info!("Miner has found unconfirmed block {} ({})", block.height(), block.hash());
                                         // Store the coinbase record.
                                         if let Err(error) = state.add_coinbase_record(block.height(), coinbase_record) {
                                             warn!("[Miner] Failed to store coinbase record - {}", error);
